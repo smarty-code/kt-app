@@ -1,4 +1,5 @@
-import { statusEvents } from "@/lib/mongo";
+import { readDeviceName } from "@/lib/device";
+import { rememberDevice, statusEvents } from "@/lib/mongo";
 
 export const runtime = "nodejs";
 
@@ -48,6 +49,7 @@ export async function POST(request: Request) {
     })),
     { ordered: false },
   );
+  await rememberDevice(parsed.deviceId, parsed.deviceName);
 
   return Response.json({ accepted: parsed.events.map((event) => event.id) });
 }
@@ -72,11 +74,11 @@ export async function GET(request: Request) {
 
 function parseUpload(
   body: unknown,
-): { ok: true; deviceId: string; events: IncomingEvent[] } | { ok: false; error: string } {
+): { ok: true; deviceId: string; deviceName: string | null; events: IncomingEvent[] } | { ok: false; error: string } {
   if (!body || typeof body !== "object") {
     return { ok: false, error: "Expected a JSON object" };
   }
-  const record = body as { deviceId?: unknown; events?: unknown };
+  const record = body as { deviceId?: unknown; deviceName?: unknown; events?: unknown };
   if (typeof record.deviceId !== "string" || record.deviceId.length < 1 || record.deviceId.length > 128) {
     return { ok: false, error: "deviceId is required" };
   }
@@ -90,7 +92,7 @@ function parseUpload(
     if (!event) return { ok: false, error: "An event is missing required fields" };
     events.push(event);
   }
-  return { ok: true, deviceId: record.deviceId, events };
+  return { ok: true, deviceId: record.deviceId, deviceName: readDeviceName(record.deviceName), events };
 }
 
 function parseEvent(value: unknown): IncomingEvent | null {

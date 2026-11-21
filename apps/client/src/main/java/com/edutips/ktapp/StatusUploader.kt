@@ -12,6 +12,7 @@ object StatusUploader {
         if (events.isEmpty()) return emptyList()
         val body = JSONObject()
             .put("deviceId", DeviceId.get(context))
+            .put("deviceName", DeviceId.name(context))
             .put(
                 "events",
                 JSONArray().apply {

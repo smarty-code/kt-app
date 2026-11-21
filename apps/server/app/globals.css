@@ -181,6 +181,35 @@ time,
   font-size: 14px;
 }
 
+.device-picker {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.device-picker span {
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.device-picker select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.page-device {
+  max-width: 420px;
+  margin-top: 14px;
+}
+
 .tab-panel {
   animation: fade-up 0.28s ease both;
 }
@@ -1667,6 +1696,10 @@ li:first-child > .timeline-day {
 
   .tabbar,
   .topbar {
+    display: none;
+  }
+
+  .page-device {
     display: none;
   }
 

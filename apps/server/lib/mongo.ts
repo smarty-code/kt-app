@@ -49,6 +49,12 @@ export type DeletedNotificationId = {
   deletedAt: Date;
 };
 
+export type KnownDevice = {
+  deviceId: string;
+  deviceName?: string;
+  lastSeen: Date;
+};
+
 const THIRTY_DAYS_SECONDS = 60 * 60 * 24 * 30;
 
 const MONGODB_URI =
@@ -60,6 +66,7 @@ const globalForMongo = globalThis as unknown as {
   notificationIndex?: Promise<void>;
   foregroundAppIndex?: Promise<void>;
   deletedNotificationIndex?: Promise<void>;
+  deviceIndex?: Promise<void>;
   retention?: Promise<void>;
 };
 
@@ -102,6 +109,30 @@ export async function foregroundApps(): Promise<Collection<ForegroundAppSample>>
   }
   await globalForMongo.foregroundAppIndex;
   return collection;
+}
+
+export async function devices(): Promise<Collection<KnownDevice>> {
+  const client = await mongoClient();
+  const databaseName = process.env.MONGODB_DB || "kt_app";
+  const collection = client.db(databaseName).collection<KnownDevice>("devices");
+  if (!globalForMongo.deviceIndex) {
+    globalForMongo.deviceIndex = collection
+      .createIndex({ deviceId: 1 }, { unique: true })
+      .then(() => undefined);
+  }
+  await globalForMongo.deviceIndex;
+  return collection;
+}
+
+export async function rememberDevice(deviceId: string, deviceName: string | null): Promise<void> {
+  const collection = await devices();
+  const update: { lastSeen: Date; deviceName?: string } = { lastSeen: new Date() };
+  if (deviceName) update.deviceName = deviceName;
+  await collection.updateOne(
+    { deviceId },
+    { $set: update, $setOnInsert: { deviceId } },
+    { upsert: true },
+  );
 }
 
 export async function deletedNotificationIds(): Promise<Collection<DeletedNotificationId>> {

@@ -38,3 +38,9 @@ export const WINDOWS = [
 export type WindowId = (typeof WINDOWS)[number]["id"];
 
 export type TabId = "overview" | "activity" | "apps" | "notifications";
+
+export type KnownDevice = {
+  deviceId: string;
+  deviceName: string;
+  lastSeen: number;
+};

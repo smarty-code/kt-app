@@ -1,4 +1,5 @@
-import { deletedNotificationIds, deviceNotifications } from "@/lib/mongo";
+import { readDeviceName } from "@/lib/device";
+import { deletedNotificationIds, deviceNotifications, rememberDevice } from "@/lib/mongo";
 
 export const runtime = "nodejs";
 
@@ -49,6 +50,8 @@ export async function POST(request: Request) {
       { ordered: false },
     );
   }
+
+  await rememberDevice(parsed.deviceId, parsed.deviceName);
 
   return Response.json({ accepted: ids });
 }
@@ -112,11 +115,11 @@ function windowCutoff(windowId: string | null): number {
 
 function parseUpload(
   body: unknown,
-): { ok: true; deviceId: string; notifications: IncomingNotification[] } | { ok: false; error: string } {
+): { ok: true; deviceId: string; deviceName: string | null; notifications: IncomingNotification[] } | { ok: false; error: string } {
   if (!body || typeof body !== "object") {
     return { ok: false, error: "Expected a JSON object" };
   }
-  const record = body as { deviceId?: unknown; notifications?: unknown };
+  const record = body as { deviceId?: unknown; deviceName?: unknown; notifications?: unknown };
   if (typeof record.deviceId !== "string" || record.deviceId.length < 1 || record.deviceId.length > 128) {
     return { ok: false, error: "deviceId is required" };
   }
@@ -130,7 +133,12 @@ function parseUpload(
     if (!notification) return { ok: false, error: "A notification is missing required fields" };
     notifications.push(notification);
   }
-  return { ok: true, deviceId: record.deviceId, notifications };
+  return {
+    ok: true,
+    deviceId: record.deviceId,
+    deviceName: readDeviceName(record.deviceName),
+    notifications,
+  };
 }
 
 function parseNotification(value: unknown): IncomingNotification | null {

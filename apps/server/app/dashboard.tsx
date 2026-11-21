@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity } from "./_components/activity";
 import { Apps } from "./_components/apps";
-import { appLabel, batteryTone, connection, isCharging } from "./_components/format";
+import { appLabel, batteryTone, connection, isCharging, relativeTime } from "./_components/format";
 import { AlertIcon, BellIcon, BoltIcon, GridIcon, HomeIcon, PulseIcon, ShieldIcon, XIcon } from "./_components/icons";
 import { Notifications, type RemoveRequest } from "./_components/notifications";
 import { Overview } from "./_components/overview";
@@ -11,10 +11,13 @@ import {
   WINDOWS,
   type DeviceNotification,
   type ForegroundApp,
+  type KnownDevice,
   type StatusEvent,
   type TabId,
   type WindowId,
 } from "./_components/types";
+
+const DEVICE_KEY = "kt-device";
 
 const TABS: { id: TabId; label: string; title: string; subtitle: string; icon: typeof HomeIcon }[] = [
   { id: "overview", label: "Overview", title: "Overview", subtitle: "What the phone is doing right now", icon: HomeIcon },
@@ -28,6 +31,8 @@ const windowSpan = (id: WindowId) => WINDOWS.find((item) => item.id === id)?.ms 
 export function Dashboard() {
   const [tab, setTab] = useState<TabId>("overview");
   const [windowId, setWindowId] = useState<WindowId>("1h");
+  const [devices, setDevices] = useState<KnownDevice[]>([]);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
   const [event, setEvent] = useState<StatusEvent | null>(null);
   const [history, setHistory] = useState<StatusEvent[]>([]);
   const [apps, setApps] = useState<ForegroundApp[]>([]);
@@ -51,19 +56,75 @@ export function Dashboard() {
 
   const navigate = useCallback((next: TabId) => {
     setTab(next);
-    window.history.replaceState(null, "", `#${next}`);
+    const url = new URL(window.location.href);
+    url.hash = next;
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  useEffect(() => {
+    const stored = new URLSearchParams(window.location.search).get("device") || window.localStorage.getItem(DEVICE_KEY);
+    if (stored) setDeviceId(stored);
   }, []);
 
   useEffect(() => {
     let ignore = false;
 
-    async function load(first: boolean) {
+    async function loadDevices() {
       try {
+        const response = await fetch("/api/devices", { cache: "no-store" });
+        if (!response.ok) throw new Error("devices failed");
+        const body = (await response.json()) as { devices?: KnownDevice[] };
+        if (ignore) return;
+        const list = body.devices ?? [];
+        setDevices(list);
+        setDeviceId((current) => {
+          if (list.length === 0) return null;
+          if (current && list.some((device) => device.deviceId === current)) return current;
+          return list[0].deviceId;
+        });
+        if (list.length === 0) setReady(true);
+        setError(null);
+      } catch {
+        if (!ignore) setError("Couldn't reach the server. Retrying…");
+      }
+    }
+
+    void loadDevices();
+    const timer = setInterval(() => void loadDevices(), 15000);
+    return () => {
+      ignore = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    setEvent(null);
+    setHistory([]);
+    setApps([]);
+    setNotes([]);
+  }, [deviceId]);
+
+  useEffect(() => {
+    if (!deviceId) return;
+    window.localStorage.setItem(DEVICE_KEY, deviceId);
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("device") === deviceId) return;
+    url.searchParams.set("device", deviceId);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [deviceId]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function load(first: boolean) {
+      if (!deviceId) return;
+      try {
+        const query = `deviceId=${encodeURIComponent(deviceId)}`;
         const [eventResponse, appResponse, noteResponse] = await Promise.all([
-          fetch("/api/events?limit=1", { cache: "no-store" }),
-          fetch("/api/apps?limit=50", { cache: "no-store" }),
-          fetch(`/api/notifications?active=false&since=${Date.now() - windowSpan(windowId)}`, { cache: "no-store" }),
+          fetch(`/api/events?limit=1&${query}`, { cache: "no-store" }),
+          fetch(`/api/apps?limit=50&${query}`, { cache: "no-store" }),
+          fetch(`/api/notifications?active=false&since=${Date.now() - windowSpan(windowId)}&${query}`, { cache: "no-store" }),
         ]);
         if (!eventResponse.ok || !appResponse.ok || !noteResponse.ok) throw new Error("refresh failed");
         const eventBody = (await eventResponse.json()) as { events?: StatusEvent[] };
@@ -90,14 +151,18 @@ export function Dashboard() {
       ignore = true;
       clearInterval(timer);
     };
-  }, [windowId]);
+  }, [deviceId, windowId]);
 
   // The longer history changes slowly and is heavier, so it refreshes less often.
   useEffect(() => {
     let ignore = false;
     async function loadHistory() {
+      if (!deviceId) {
+        if (!ignore) setHistory([]);
+        return;
+      }
       try {
-        const response = await fetch("/api/events?limit=200", { cache: "no-store" });
+        const response = await fetch(`/api/events?limit=200&deviceId=${encodeURIComponent(deviceId)}`, { cache: "no-store" });
         if (!response.ok) return;
         const body = (await response.json()) as { events?: StatusEvent[] };
         if (!ignore) setHistory(body.events ?? []);
@@ -111,9 +176,10 @@ export function Dashboard() {
       ignore = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [deviceId]);
 
   async function removeNotifications(request: RemoveRequest) {
+    if (!deviceId) return;
     const previous = notes;
     busyRef.current = true;
     setBusy(true);
@@ -121,18 +187,18 @@ export function Dashboard() {
     let bodies: object[];
     if ("id" in request) {
       setNotes((current) => current.filter((item) => item.id !== request.id));
-      bodies = [{ id: request.id }];
+      bodies = [{ id: request.id, deviceId }];
     } else if ("ids" in request) {
       const ids = new Set(request.ids);
       setNotes((current) => current.filter((item) => !ids.has(item.id)));
-      bodies = request.ids.map((id) => ({ id }));
+      bodies = request.ids.map((id) => ({ id, deviceId }));
     } else if (request.scope === "all") {
       setNotes([]);
-      bodies = [{ scope: "all" }];
+      bodies = [{ scope: "all", deviceId }];
     } else {
       const cutoff = Date.now() - windowSpan(windowId);
       setNotes((current) => current.filter((item) => item.postedAt < cutoff));
-      bodies = [{ scope: "window" }];
+      bodies = [{ scope: "window", deviceId }];
     }
 
     try {
@@ -156,6 +222,7 @@ export function Dashboard() {
   }
 
   const active = TABS.find((item) => item.id === tab) ?? TABS[0];
+  const selected = devices.find((device) => device.deviceId === deviceId) ?? null;
   const windowLong = WINDOWS.find((item) => item.id === windowId)?.long ?? "hour";
   const conn = ready ? connection(event?.recordedAt, now) : { tone: "recent" as const, label: "Connecting…" };
   const battery = event?.batteryPercent ?? null;
@@ -181,11 +248,13 @@ export function Dashboard() {
           ))}
         </nav>
         <div className="device-card">
+          <DevicePicker devices={devices} deviceId={deviceId} onChange={setDeviceId} />
           <div className="device-card-top">
-            <span className="device-label">Child&apos;s phone</span>
+            <span className="device-label">{selected?.deviceName ?? "No device yet"}</span>
             <span className={`conn-dot conn-${conn.tone}`} aria-hidden="true" />
           </div>
           <strong>{conn.label}</strong>
+          {selected ? <span className="device-meta">Seen {relativeTime(selected.lastSeen, now)}</span> : null}
           {event ? (
             <span className="device-meta">
               {event.activity === "IN_USE" && event.foregroundApp ? appLabel(event.foregroundApp) : "Not in use"}
@@ -211,6 +280,7 @@ export function Dashboard() {
           <div className="page-head">
             <h1>{active.title}</h1>
             <p>{active.subtitle}</p>
+            <DevicePicker className="page-device" devices={devices} deviceId={deviceId} onChange={setDeviceId} />
           </div>
 
           {error ? (
@@ -272,6 +342,42 @@ export function Dashboard() {
       </nav>
     </div>
   );
+}
+
+function DevicePicker({
+  devices,
+  deviceId,
+  onChange,
+  className,
+}: {
+  devices: KnownDevice[];
+  deviceId: string | null;
+  onChange: (deviceId: string) => void;
+  className?: string;
+}) {
+  return (
+    <label className={className ? `device-picker ${className}` : "device-picker"}>
+      <span>Device</span>
+      <select
+        value={deviceId ?? ""}
+        disabled={devices.length === 0}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {devices.length === 0 ? <option value="">No devices yet</option> : null}
+        {devices.map((device) => (
+          <option key={device.deviceId} value={device.deviceId}>
+            {deviceOptionLabel(device, devices)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function deviceOptionLabel(device: KnownDevice, devices: KnownDevice[]): string {
+  const shared = devices.filter((item) => item.deviceName === device.deviceName).length > 1;
+  if (!shared) return device.deviceName;
+  return `${device.deviceName} · ${device.deviceId.replace(/-/g, "").slice(0, 8)}`;
 }
 
 function Brand({ compact = false }: { compact?: boolean }) {
