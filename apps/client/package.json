@@ -1,0 +1,7 @@
+{
+  "name": "@kt/client",
+  "private": true,
+  "scripts": {
+    "build": "GRADLE_USER_HOME=\"$HOME/.cache/kt-app/gradle\" ../../gradlew :client:assembleDebug --offline"
+  }
+}

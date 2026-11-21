@@ -1,0 +1,12 @@
+{
+  "name": "kt-app",
+  "private": true,
+  "packageManager": "pnpm@11.21.0",
+  "scripts": {
+    "build": "GRADLE_USER_HOME=\"$HOME/.cache/kt-app/gradle\" ./gradlew :client:assembleDebug :admin:assembleDebug --offline",
+    "client:build": "pnpm --filter @kt/client build",
+    "admin:build": "pnpm --filter @kt/admin build",
+    "server:build": "pnpm --filter @kt/server build",
+    "server:start": "pnpm --filter @kt/server dev"
+  }
+}

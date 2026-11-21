@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Client</string>
+    <string name="device_status_title">Device status</string>
+    <string name="presence_limit">Activity is In use when the screen is on and unlocked, Lock screen when the lock screen is showing, and Idle when the screen is off. The phone is still powered on in every case. Android cannot tell that a person is still nearby.</string>
+    <string name="notifications_title">Active notifications</string>
+    <string name="notification_access">Allow notification access</string>
+    <string name="notifications_waiting">Turn on notification access to see the notifications currently on this phone.</string>
+    <string name="notifications_empty">No other notifications are showing.</string>
+    <string name="usage_access">Allow usage access</string>
+</resources>
