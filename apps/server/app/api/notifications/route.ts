@@ -38,6 +38,8 @@ export async function POST(request: Request) {
             $set: {
               ...notification,
               deviceId: parsed.deviceId,
+            },
+            $setOnInsert: {
               receivedAt,
             },
           },

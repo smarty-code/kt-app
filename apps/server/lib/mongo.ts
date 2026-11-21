@@ -44,6 +44,13 @@ export type DeviceNotification = {
   receivedAt: Date;
 };
 
+export type DeletedNotificationId = {
+  id: string;
+  deletedAt: Date;
+};
+
+const THIRTY_DAYS_SECONDS = 60 * 60 * 24 * 30;
+
 const MONGODB_URI =
   "mongodb+srv://smartyamit067_db_user:dECIRf3Rk9Iyok8W@cluster0.n9fnime.mongodb.net/";
 
@@ -53,15 +60,11 @@ const globalForMongo = globalThis as unknown as {
   notificationIndex?: Promise<void>;
   foregroundAppIndex?: Promise<void>;
   deletedNotificationIndex?: Promise<void>;
+  retention?: Promise<void>;
 };
 
 export async function statusEvents(): Promise<Collection<StatusEvent>> {
-  if (!globalForMongo.mongoClient) {
-    const client = new MongoClient(MONGODB_URI);
-    globalForMongo.mongoClient = client.connect();
-  }
-
-  const client = await globalForMongo.mongoClient;
+  const client = await mongoClient();
   const databaseName = process.env.MONGODB_DB || "kt_app";
   const collection = client.db(databaseName).collection<StatusEvent>("status_events");
 
@@ -76,11 +79,7 @@ export async function statusEvents(): Promise<Collection<StatusEvent>> {
 }
 
 export async function deviceNotifications(): Promise<Collection<DeviceNotification>> {
-  if (!globalForMongo.mongoClient) {
-    const client = new MongoClient(MONGODB_URI);
-    globalForMongo.mongoClient = client.connect();
-  }
-  const client = await globalForMongo.mongoClient;
+  const client = await mongoClient();
   const databaseName = process.env.MONGODB_DB || "kt_app";
   const collection = client.db(databaseName).collection<DeviceNotification>("device_notifications");
   if (!globalForMongo.notificationIndex) {
@@ -105,10 +104,10 @@ export async function foregroundApps(): Promise<Collection<ForegroundAppSample>>
   return collection;
 }
 
-export async function deletedNotificationIds(): Promise<Collection<{ id: string }>> {
+export async function deletedNotificationIds(): Promise<Collection<DeletedNotificationId>> {
   const client = await mongoClient();
   const databaseName = process.env.MONGODB_DB || "kt_app";
-  const collection = client.db(databaseName).collection<{ id: string }>("deleted_notification_ids");
+  const collection = client.db(databaseName).collection<DeletedNotificationId>("deleted_notification_ids");
   if (!globalForMongo.deletedNotificationIndex) {
     globalForMongo.deletedNotificationIndex = collection
       .createIndex({ id: 1 }, { unique: true })
@@ -123,5 +122,29 @@ async function mongoClient(): Promise<MongoClient> {
     const client = new MongoClient(MONGODB_URI);
     globalForMongo.mongoClient = client.connect();
   }
-  return globalForMongo.mongoClient;
+  const client = await globalForMongo.mongoClient;
+  if (!globalForMongo.retention) {
+    globalForMongo.retention = ensureThirtyDayExpiry(client).catch((error: unknown) => {
+      globalForMongo.retention = undefined;
+      throw error;
+    });
+  }
+  await globalForMongo.retention;
+  return client;
+}
+
+async function ensureThirtyDayExpiry(client: MongoClient): Promise<void> {
+  const database = client.db(process.env.MONGODB_DB || "kt_app");
+  const ttl = { expireAfterSeconds: THIRTY_DAYS_SECONDS, name: "expire_after_30_days" };
+  const dated = ["status_events", "foreground_apps", "device_notifications"] as const;
+  await Promise.all(
+    dated.map(async (name) => {
+      const collection = database.collection(name);
+      await collection.updateMany({ receivedAt: { $not: { $type: "date" } } }, { $set: { receivedAt: new Date() } });
+      await collection.createIndex({ receivedAt: 1 }, ttl);
+    }),
+  );
+  const deleted = database.collection("deleted_notification_ids");
+  await deleted.updateMany({ deletedAt: { $not: { $type: "date" } } }, { $set: { deletedAt: new Date() } });
+  await deleted.createIndex({ deletedAt: 1 }, ttl);
 }
